@@ -6,7 +6,6 @@
     <title>ডিসকাউন্ট কুপন জেনারেটর ও ভ্যালিডেটর</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-    <!-- HTML to Canvas library for downloading the entire card -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -70,13 +69,10 @@
     <div class="container mx-auto p-4 md:p-8">
         <header class="text-center mb-8">
             <h1 class="text-3xl md:text-4xl font-extrabold text-gray-800 border-b-4 border-emerald-500 pb-2 inline-block">কুপন ম্যানেজমেন্ট সিস্টেম</h1>
-            <!-- NEW LINE ADDED HERE -->
             <p class="text-gray-600 mt-2 text-lg font-medium">[ Owner : WideFind ]</p>
-            <!-- END NEW LINE -->
             <p class="text-gray-600 mt-2">ডিসকাউন্ট কুপন তৈরি, ভ্যালিডেট এবং তালিকা দেখুন।</p>
         </header>
 
-        <!-- Tab Controls -->
         <div class="flex justify-center mb-8">
             <button id="tabGenerate" class="tab-btn active px-6 py-2 rounded-l-lg font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-emerald-100 transition duration-150">
                 কুপন তৈরি করুন
@@ -89,29 +85,34 @@
             </button>
         </div>
 
-        <!-- Main Content Area -->
         <div id="contentArea" class="bg-white p-6 md:p-10 rounded-xl shadow-2xl">
-            <!-- Content will be injected here -->
-        </div>
+            </div>
 
-        <!-- User ID Display for Collaboration -->
         <footer class="mt-8 text-center text-sm text-gray-500 p-4 bg-white rounded-xl shadow-md">
             <p>আপনার ইউজার আইডি (অন্যান্য ব্যবহারকারীদের সাথে শেয়ার করুন):</p>
             <p id="userIdDisplay" class="font-mono text-base text-emerald-600 break-all mt-1"></p>
         </footer>
     </div>
 
-    <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, updateDoc, onSnapshot, collection, query, where, limit, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Firebase Setup ---
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
+        // আপনার দেওয়া আসল Firebase কনফিগারেশন কোড এখানে যোগ করা হয়েছে
+        const firebaseConfig = {
+            apiKey: "AIzaSyAxzl1jPy7PPAnTw_EGfpE7XdbA0Do1eYU",
+            authDomain: "cupon-genarator.firebaseapp.com",
+            databaseURL: "https://cupon-genarator-default-rtdb.firebaseio.com",
+            projectId: "cupon-genarator",
+            storageBucket: "cupon-genarator.firebasestorage.app",
+            messagingSenderId: "504052398987",
+            appId: "1:504052398987:web:61f63ba0f6abd719444d8e",
+            measurementId: "G-R6DHYH0CN5"
+        };
+        
+        const appId = firebaseConfig.appId; // কনফিগারেশন থেকে appId নেওয়া হয়েছে
         let db, auth, userId = null;
         
         // --- Global Variables for UI State Persistence & Download ---
@@ -215,22 +216,18 @@
                     if (user) {
                         userId = user.uid;
                     } else {
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                            userId = auth.currentUser.uid;
-                        } else {
-                            const anonymousUser = await signInAnonymously(auth);
-                            userId = anonymousUser.user.uid;
-                        }
+                        const anonymousUser = await signInAnonymously(auth);
+                        userId = anonymousUser.user.uid;
                     }
                     const userIdDisplay = document.getElementById('userIdDisplay');
-                    if (userIdDisplay) { // Check before setting textContent
+                    if (userIdDisplay) {
                         userIdDisplay.textContent = userId;
                     }
                     loadTabContent('generate');
                 });
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
+                document.getElementById('contentArea').innerHTML = `<p class="text-red-600 font-bold text-center">Firebase সংযোগ স্থাপন করা যায়নি। আপনার কনফিগারেশন সঠিক কিনা তা পরীক্ষা করুন।</p>`;
             }
         }
 
@@ -271,14 +268,11 @@
                             <p class="text-sm font-medium opacity-90 break-words">${coupon.title}</p>
                         </div>
 
-                        <!-- Fixed layout with flex-grow on the right section to prevent overlap -->
                         <div class="flex items-end justify-between space-x-4"> 
-                            <!-- QR Code on Left (Fixed size) -->
                             <div class="qr-code-large bg-white p-1 rounded-lg flex-shrink-0 shadow-md">
                                 <div id="${qrId}"></div>
                             </div>
                             
-                            <!-- Coupon Details on Right (Takes up remaining space) -->
                             <div class="text-right min-w-0 flex-grow">
                                 <div class="text-base font-light mb-1 opacity-90">কুপন কোড:</div>
                                 <div class="text-4xl font-mono font-bold tracking-widest leading-none text-white break-all">${coupon.code}</div>
@@ -334,16 +328,12 @@
                 <div id="generationResult" class="mt-8 p-6 bg-emerald-50 border-l-4 border-emerald-500 rounded-lg hidden">
                     <p class="font-semibold text-emerald-800 mb-4" id="resultHeader">সফলভাবে তৈরি কুপন:</p>
                     
-                    <!-- NEW BATCH DOWNLOAD BUTTON -->
                     <button id="downloadAllBtn" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition duration-150 transform hover:scale-[1.01] shadow-lg mb-6 flex items-center justify-center hidden">
                         <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                         সব কুপন একবারে ডাউনলোড করুন (<span id="downloadCount"></span> টি)
                     </button>
-                    <!-- END NEW BATCH DOWNLOAD BUTTON -->
-                    
                     <div id="couponDisplay" class="text-center space-y-4">
-                        <!-- Coupon Card(s) will be displayed here -->
-                    </div>
+                        </div>
                 </div>
             `;
             document.getElementById('contentArea').innerHTML = content;
@@ -568,8 +558,7 @@
                 </form>
 
                 <div id="validatorResult" class="mt-8 p-6 text-center bg-gray-100 rounded-lg hidden border-l-4 border-gray-400">
-                    <!-- Validation result will be displayed here -->
-                </div>
+                    </div>
             `;
             document.getElementById('contentArea').innerHTML = content;
             document.getElementById('validateForm').addEventListener('submit', validateCoupon);
@@ -593,7 +582,6 @@
                             </tr>
                         </thead>
                         <tbody id="couponListBody" class="bg-white divide-y divide-gray-200">
-                            <!-- Coupon data will be loaded here -->
                             <tr><td colspan="7" class="text-center py-4 text-gray-500">কুপন লোড হচ্ছে...</td></tr>
                         </tbody>
                     </table>
