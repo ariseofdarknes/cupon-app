@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ডিসকাউন্ট কুপন জেনারেটর ও ভ্যালিডেটর</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Hind Siliguri', sans-serif;
+            background-color: #f4f7f9;
+        }
+        .coupon-card {
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        .coupon-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+        }
+        .tab-btn.active {
+            background-color: #10b981; /* Emerald 500 */
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-extrabold text-gray-800 border-b-4 border-emerald-500 pb-2 inline-block">কুপন ম্যানেজমেন্ট সিস্টেম</h1>
+            <p class="text-gray-600 mt-2">ডিসকাউন্ট কুপন তৈরি, ভ্যালিডেট এবং তালিকা দেখুন।</p>
+        </header>
+
+        <!-- Tab Controls -->
+        <div class="flex justify-center mb-8">
+            <button id="tabGenerate" class="tab-btn active px-6 py-2 rounded-l-lg font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-emerald-100 transition duration-150">
+                কুপন তৈরি করুন
+            </button>
+            <button id="tabValidate" class="tab-btn px-6 py-2 font-semibold text-gray-700 bg-white border-y border-gray-300 hover:bg-emerald-100 transition duration-150">
+                কুপন ভ্যালিডেট করুন
+            </button>
+            <button id="tabList" class="tab-btn px-6 py-2 rounded-r-lg font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-emerald-100 transition duration-150">
+                কুপন তালিকা
+            </button>
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="contentArea" class="bg-white p-6 md:p-10 rounded-xl shadow-2xl">
+            <!-- Content will be injected here -->
+        </div>
+
+        <!-- User ID Display for Collaboration -->
+        <footer class="mt-8 text-center text-sm text-gray-500 p-4 bg-white rounded-xl shadow-md">
+            <p>আপনার ইউজার আইডি (অন্যান্য ব্যবহারকারীদের সাথে শেয়ার করুন):</p>
+            <p id="userIdDisplay" class="font-mono text-base text-emerald-600 break-all mt-1"></p>
+        </footer>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Setup ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth, userId = null;
+
+        // Utility to handle Base64 to ArrayBuffer conversion for audio
+        function base64ToArrayBuffer(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        // Utility to convert raw PCM audio data to a WAV Blob
+        function pcmToWav(pcm16, sampleRate) {
+            const numChannels = 1;
+            const bytesPerSample = 2; // 16-bit PCM
+
+            const wavData = new ArrayBuffer(44 + pcm16.length * bytesPerSample);
+            const view = new DataView(wavData);
+
+            // RIFF chunk descriptor
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + pcm16.length * bytesPerSample, true); // ChunkSize
+            writeString(view, 8, 'WAVE');
+
+            // FMT chunk
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+            view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
+            view.setUint16(22, numChannels, true); // NumChannels
+            view.setUint32(24, sampleRate, true); // SampleRate
+            view.setUint32(28, sampleRate * numChannels * bytesPerSample, true); // ByteRate
+            view.setUint16(32, numChannels * bytesPerSample, true); // BlockAlign
+            view.setUint16(34, 16, true); // BitsPerSample (16-bit)
+
+            // DATA chunk
+            writeString(view, 36, 'data');
+            view.setUint32(40, pcm16.length * bytesPerSample, true); // Subchunk2Size
+
+            // PCM data
+            let offset = 44;
+            for (let i = 0; i < pcm16.length; i++) {
+                view.setInt16(offset, pcm16[i], true);
+                offset += bytesPerSample;
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        async function initFirebase() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                    } else {
+                        // Sign in anonymously if no token is provided
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                            userId = auth.currentUser.uid;
+                        } else {
+                            const anonymousUser = await signInAnonymously(auth);
+                            userId = anonymousUser.user.uid;
+                        }
+                    }
+                    document.getElementById('userIdDisplay').textContent = userId;
+                    // Automatically load the default tab content after auth is ready
+                    loadTabContent('generate');
+                });
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+            }
+        }
+
+        // --- Coupon Generation ---
+        function generateCouponCode(length = 12) {
+            const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let result = '';
+            for (let i = 0; i < length; i++) {
+                result += characters.charAt(Math.floor(Math.random() * characters.length));
+            }
+            return result;
+        }
+
+        async function saveCoupon(couponData) {
+            try {
+                await addDoc(collection(db, `artifacts/${appId}/users/${userId}/coupons`), couponData);
+                return true;
+            } catch (error) {
+                console.error("Error saving coupon:", error);
+                return false;
+            }
+        }
+
+        function renderGenerateTab() {
+            const today = new Date().toISOString().split('T')[0];
+            const content = `
+                <h2 class="text-2xl font-bold text-emerald-600 mb-6 border-b pb-2">নতুন কুপন তৈরি করুন</h2>
+                <form id="couponForm" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="discountAmount" class="block text-gray-700 font-medium mb-2">ডিসকাউন্ট পরিমাণ (%)</label>
+                        <input type="number" id="discountAmount" value="10" min="1" max="100" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500" required>
+                    </div>
+                    <div>
+                        <label for="expiryDate" class="block text-gray-700 font-medium mb-2">মেয়াদ শেষের তারিখ</label>
+                        <input type="date" id="expiryDate" value="${today}" min="${today}" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500" required>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label for="description" class="block text-gray-700 font-medium mb-2">কুপন বর্ণনা (ঐচ্ছিক)</label>
+                        <input type="text" id="description" placeholder="যেমন: প্রথম কেনাকাটার জন্য" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+                    </div>
+                    <div class="md:col-span-2 mt-4">
+                        <button type="submit" class="w-full bg-emerald-600 text-white font-bold py-3 rounded-lg hover:bg-emerald-700 transition duration-150 transform hover:scale-[1.01] shadow-lg">
+                            কুপন তৈরি ও সংরক্ষণ করুন
+                        </button>
+                    </div>
+                </form>
+
+                <div id="generationResult" class="mt-8 p-6 bg-emerald-50 border-l-4 border-emerald-500 rounded-lg hidden">
+                    <p class="font-semibold text-emerald-800 mb-2">সফলভাবে তৈরি কুপন:</p>
+                    <div id="couponDisplay" class="text-center">
+                        <!-- QR Code and Coupon Code will be displayed here -->
+                    </div>
+                </div>
+            `;
+            document.getElementById('contentArea').innerHTML = content;
+
+            document.getElementById('couponForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const amount = document.getElementById('discountAmount').value;
+                const expiry = document.getElementById('expiryDate').value;
+                const description = document.getElementById('description').value;
+
+                if (!amount || !expiry) {
+                    alert('দয়া করে ডিসকাউন্ট এবং মেয়াদ শেষের তারিখ দিন।');
+                    return;
+                }
+
+                const code = generateCouponCode();
+                const couponData = {
+                    code: code,
+                    discount: parseInt(amount),
+                    expiryDate: expiry,
+                    description: description,
+                    isUsed: false,
+                    createdAt: new Date().toISOString()
+                };
+
+                const saveSuccess = await saveCoupon(couponData);
+
+                const resultDiv = document.getElementById('generationResult');
+                const displayDiv = document.getElementById('couponDisplay');
+
+                if (saveSuccess) {
+                    resultDiv.classList.remove('hidden');
+                    displayDiv.innerHTML = `
+                        <p class="text-4xl font-mono font-bold text-gray-800 my-4 p-2 bg-white inline-block rounded-lg shadow-inner">${code}</p>
+                        <p class="text-lg text-gray-700">ডিসকাউন্ট: ${amount}%</p>
+                        <p class="text-sm text-gray-500">মেয়াদ: ${expiry}</p>
+                        <div id="qrcode" class="mt-4 inline-block p-4 bg-white rounded-lg shadow-md"></div>
+                    `;
+
+                    // Generate QR Code
+                    const qrcodeDiv = document.getElementById('qrcode');
+                    qrcodeDiv.innerHTML = ''; // Clear previous QR
+                    new QRCode(qrcodeDiv, {
+                        text: code,
+                        width: 128,
+                        height: 128,
+                        colorDark: "#10b981",
+                        colorLight: "#ffffff",
+                        correctLevel: QRCode.CorrectLevel.H
+                    });
+
+                } else {
+                    resultDiv.classList.remove('hidden');
+                    displayDiv.innerHTML = `<p class="text-red-600 font-bold">কুপন সংরক্ষণ করতে সমস্যা হয়েছে।</p>`;
+                }
+            });
+        }
+
+        // --- Coupon Validation ---
+        async function getCouponByCode(code) {
+            const q = query(
+                collection(db, `artifacts/${appId}/users/${userId}/coupons`),
+                where("code", "==", code),
+                limit(1)
+            );
+            const querySnapshot = await getDocs(q);
+            if (!querySnapshot.empty) {
+                return querySnapshot.docs[0];
+            }
+            return null;
+        }
+
+        async function validateCoupon(e) {
+            e.preventDefault();
+            const inputCode = document.getElementById('validateInput').value.toUpperCase().trim();
+            const validatorResult = document.getElementById('validatorResult');
+            const validateBtn = document.getElementById('validateBtn');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+
+            if (!inputCode) {
+                validatorResult.innerHTML = `<p class="text-red-600 font-semibold">কুপন কোড দিন।</p>`;
+                validatorResult.classList.remove('hidden');
+                return;
+            }
+
+            validateBtn.disabled = true;
+            loadingIndicator.classList.remove('hidden');
+            validatorResult.classList.add('hidden');
+
+            try {
+                const couponDoc = await getCouponByCode(inputCode);
+
+                if (!couponDoc) {
+                    validatorResult.innerHTML = `<p class="text-red-600 font-bold">কুপন কোডটি খুঁজে পাওয়া যায়নি।</p>`;
+                } else {
+                    const couponData = couponDoc.data();
+                    const expiry = new Date(couponData.expiryDate);
+
+                    if (couponData.isUsed) {
+                        validatorResult.innerHTML = `<p class="text-yellow-600 font-semibold">এই কুপনটি ইতিমধ্যে ব্যবহার করা হয়ে গেছে।</p>`;
+                    } else if (new Date() > expiry) {
+                        validatorResult.innerHTML = `<p class="text-yellow-600 font-semibold">এই কুপনটির মেয়াদ শেষ হয়ে গেছে।</p>`;
+                    } else {
+                        // কোডটি সফলভাবে ব্যবহার করা হলো, এখন ডেটাবেস আপডেট হবে
+                        await updateDoc(doc(db, `artifacts/${appId}/users/${userId}/coupons`, couponDoc.id), {
+                            isUsed: true,
+                            usageDate: new Date().toISOString()
+                        }); // <--- SYNTAX ERROR FIXED HERE
+
+                        validatorResult.innerHTML = `<p class="text-green-600 font-bold">কুপন সফলভাবে ব্যবহার করা হয়েছে! ডিসকাউন্ট প্রযোজ্য হবে।</p>`;
+                    }
+                }
+            } catch (error) {
+                console.error("Validation error:", error);
+                validatorResult.innerHTML = `<p class="text-red-600 font-bold">ভ্যালিডেশনে একটি সমস্যা হয়েছে।</p>`;
+            } finally {
+                validateBtn.disabled = false;
+                loadingIndicator.classList.add('hidden');
+                validatorResult.classList.remove('hidden');
+            }
+        }
+
+        function renderValidateTab() {
+            const content = `
+                <h2 class="text-2xl font-bold text-emerald-600 mb-6 border-b pb-2">কুপন ভ্যালিডেট করুন</h2>
+                <form id="validateForm" class="max-w-md mx-auto">
+                    <div class="mb-4">
+                        <label for="validateInput" class="block text-gray-700 font-medium mb-2">কুপন কোড লিখুন</label>
+                        <input type="text" id="validateInput" placeholder="যেমন: XYZ123ABC456" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 uppercase" required>
+                    </div>
+                    <button type="submit" id="validateBtn" class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition duration-150 transform hover:scale-[1.01] shadow-lg flex items-center justify-center">
+                        <svg id="loadingIndicator" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        ভ্যালিডেট করুন
+                    </button>
+                </form>
+
+                <div id="validatorResult" class="mt-8 p-6 text-center bg-gray-100 rounded-lg hidden border-l-4 border-gray-400">
+                    <!-- Validation result will be displayed here -->
+                </div>
+            `;
+            document.getElementById('contentArea').innerHTML = content;
+            document.getElementById('validateForm').addEventListener('submit', validateCoupon);
+        }
+
+        // --- Coupon List ---
+        function renderListTab() {
+            const content = `
+                <h2 class="text-2xl font-bold text-emerald-600 mb-6 border-b pb-2">কুপন তালিকা</h2>
+                <div class="overflow-x-auto bg-gray-50 p-4 rounded-lg shadow-inner">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-emerald-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">কোড</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ডিসকাউন্ট (%)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">মেয়াদ</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">স্ট্যাটাস</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ব্যবহারের তারিখ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="couponListBody" class="bg-white divide-y divide-gray-200">
+                            <!-- Coupon data will be loaded here -->
+                            <tr><td colspan="5" class="text-center py-4 text-gray-500">কুপন লোড হচ্ছে...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            document.getElementById('contentArea').innerHTML = content;
+            loadCouponList();
+        }
+
+        function loadCouponList() {
+            if (!db || !userId) {
+                setTimeout(loadCouponList, 500); // Retry if not ready
+                return;
+            }
+
+            const q = query(
+                collection(db, `artifacts/${appId}/users/${userId}/coupons`)
+                // Note: Not using orderBy to avoid index requirement, sorting in JS
+            );
+
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                const coupons = [];
+                snapshot.forEach((doc) => {
+                    coupons.push({ id: doc.id, ...doc.data() });
+                });
+
+                // Sort by creation date (newest first) in JavaScript
+                coupons.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+                const tbody = document.getElementById('couponListBody');
+                if (!tbody) return; // Tab might have changed
+
+                tbody.innerHTML = coupons.map(coupon => {
+                    const statusText = coupon.isUsed ? 'ব্যবহৃত' : (new Date(coupon.expiryDate) < new Date() ? 'মেয়াদ উত্তীর্ণ' : 'সক্রিয়');
+                    let statusColor = 'bg-red-100 text-red-800';
+                    if (coupon.isUsed) {
+                        statusColor = 'bg-yellow-100 text-yellow-800';
+                    } else if (new Date(coupon.expiryDate) >= new Date()) {
+                        statusColor = 'bg-green-100 text-green-800';
+                    }
+
+                    const usageDate = coupon.usageDate ? new Date(coupon.usageDate).toLocaleDateString('bn-BD') : 'ব্যবহার হয়নি';
+
+                    return `
+                        <tr class="hover:bg-gray-50 transition duration-100">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 font-mono">${coupon.code}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${coupon.discount}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${new Date(coupon.expiryDate).toLocaleDateString('bn-BD')}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">
+                                    ${statusText}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${usageDate}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                if (coupons.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-gray-500">কোনো কুপন পাওয়া যায়নি।</td></tr>`;
+                }
+
+            }, (error) => {
+                console.error("Error loading coupon list:", error);
+                const tbody = document.getElementById('couponListBody');
+                if (tbody) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-red-500">কুপন লোড করতে সমস্যা হয়েছে।</td></tr>`;
+                }
+            });
+
+            // Optional: return unsubscribe function if needed to stop listening
+            // return unsubscribe;
+        }
+
+
+        // --- Tab Control Logic ---
+        let currentTab = 'generate';
+
+        function loadTabContent(tabName) {
+            const contentArea = document.getElementById('contentArea');
+            const tabButtons = document.querySelectorAll('.tab-btn');
+
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+
+            if (tabName === 'generate') {
+                renderGenerateTab();
+                document.getElementById('tabGenerate').classList.add('active');
+            } else if (tabName === 'validate') {
+                renderValidateTab();
+                document.getElementById('tabValidate').classList.add('active');
+            } else if (tabName === 'list') {
+                renderListTab();
+                document.getElementById('tabList').classList.add('active');
+            }
+            currentTab = tabName;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('tabGenerate').addEventListener('click', () => loadTabContent('generate'));
+            document.getElementById('tabValidate').addEventListener('click', () => loadTabContent('validate'));
+            document.getElementById('tabList').addEventListener('click', () => loadTabContent('list'));
+
+            initFirebase();
+        });
+
+    </script>
+</body>
+</html>
